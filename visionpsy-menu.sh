@@ -12,10 +12,10 @@ GREEN="\033[32m"; RED="\033[31m"; YELLOW="\033[33m"; CYAN="\033[36m"; MAGENTA="\
 BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
 
 # --- Layout ---
-W=58
+W=44
 if command -v tput >/dev/null 2>&1; then
     C=$(tput cols 2>/dev/null)
-    if [ -n "$C" ] && [ "$C" -ge 46 ] && [ "$C" -le 90 ]; then W=$((C-4)); fi
+    if [ -n "$C" ] && [ "$C" -ge 36 ] && [ "$C" -le 72 ]; then W=$((C-4)); fi
 fi
 LINE="$(printf '═%.0s' $(seq 1 "$W"))"
 SP=$(printf ' %.0s' $(seq 1 "$W"))
@@ -130,19 +130,15 @@ menu() {
         local pad=$(( (W - ${#title}) / 2 ))
         local cur=$(cat $DIR/models/current.txt 2>/dev/null || echo "?")
         local st; st=$(server_status)
-        local slots; slots=$(slot_info)
-        local sys; sys=$(sys_stats)
 
         bar_top
         printf "${CYAN}║${RESET}${BOLD}%*s%s%*s${CYAN}║${RESET}\n" "$pad" "" "$title" "$((W-pad-${#title}))" ""
         bar_sep
-        printf "${CYAN}║${RESET}  %b  ${DIM}model: ${CYAN}%s${RESET}%*s${CYAN}║${RESET}\n" "$st" "$cur" "$((W-17-${#cur}))" ""
-        printf "${CYAN}║${RESET}  ${DIM}%s%*s${CYAN}║${RESET}\n" "$sys" "$((W-5-${#sys}))" ""
-        printf "${CYAN}║${RESET}  ${DIM}slot: ${CYAN}%s${RESET}   ${DIM}web: ${GREEN}http://%s:%s${RESET}%*s${CYAN}║${RESET}\n" "$slots" "$LAN_IP" "$WEB_PORT" "$((W-26-${#slots}-${#LAN_IP}))" ""
+        printf "${CYAN}║${RESET}  %b  ${DIM}%s${RESET}%*s${CYAN}║${RESET}\n" "$st" "$cur" "$((W-8-${#cur}))" ""
         bar_sep
         panj_lr "1" "Web UI" "2" "Chat CLI"
-        panj_lr "3" "Query 1 gambar" "4" "Status"
-        panj_lr "5" "Ganti model" "0" "Keluar"
+        panj_lr "3" "Query" "4" "Status"
+        panj_lr "5" "Model" "0" "Keluar"
         bar_bot
         echo
         read -p "pilih: " opt
@@ -150,7 +146,8 @@ menu() {
             1) web ;;
             2) cli ;;
             3) read -p "path gambar: " img; query "$img" ;;
-            4) server_status; slots=$(slot_info); echo -e "${DIM}slot: $slots${RESET}"; read -p "enter..." ;;
+            4) server_status; sys_stats; echo -e "${DIM}slot: $(slot_info)${RESET}"
+               echo -e "${DIM}web: http://${LAN_IP}:${WEB_PORT}${RESET}"; read -p "enter..." ;;
             5) switch_model;        read -p "enter..." ;;
             0|q) echo -e "${DIM}mematikan server...${RESET}"
                  stop
