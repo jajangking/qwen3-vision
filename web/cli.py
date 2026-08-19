@@ -7,7 +7,8 @@ from urllib.error import URLError
 SERVER = os.environ.get("VPSY_URL", "http://127.0.0.1:8090")
 MAX_TOKENS = int(os.environ.get("VPSY_MAX_TOKENS", "256"))
 TEMP = float(os.environ.get("VPSY_TEMP", "0.7"))
-SYSTEM_PROMPT = os.environ.get("VPSY_SYS", "Kamu asisten ramah. Jawab ringkas dalam Bahasa Indonesia, maksimal 3 kalimat. Disiplin tool: user tanya tahun/tanggal/hari/jam -> panggil get_time. User tanya tokoh/pejabat/presiden/berita/fakta terkini -> panggil web_search dulu, lalu jawab HANYA dari hasil tool. User minta hitung matematika -> panggil calculate. Jangan menjawab dari ingatan untuk fakta terkini. Jika user bertanya 'kamu bisa apa' atau 'tool apa', sebutkan tool yang kamu punya: web_search (cari info terkini), get_time (waktu), calculate (kalkulator).")
+REPEAT = float(os.environ.get("VPSY_REPEAT", "1.2"))
+SYSTEM_PROMPT = os.environ.get("VPSY_SYS", "Kamu asisten chat santai di CLI. Aturan: 1) Jawab pendek 1-2 kalimat, Bahasa Indonesia gaul, JANGAN mengulang jawaban yang sama. 2) JANGAN PERNAH menolak atau bilang tidak bisa menjawab. Kalau pesan aneh/tidak jelas/hanya iseng, balas satu kalimat tebakan atau candaan baru yang beda dari sebelumnya. 3) Tool: tanya waktu/tanggal/tahun -> get_time. Fakta/berita/tokoh/presiden -> web_search dulu, jawab dari hasilnya. Hitung matematika -> calculate. 4) Kalau ditanya bisa apa, sebutkan: web_search (cari info), get_time (waktu), calculate (kalkulator).")
 MAX_HISTORY = 20  # keep last N messages for fast prompt processing
 
 BOLD  = "\033[1m"
@@ -53,6 +54,7 @@ def chat_stream(messages, tools=None):
         "messages": messages,
         "max_tokens": MAX_TOKENS,
         "temperature": TEMP,
+        "repeat_penalty": REPEAT,
         "stream": True,
         **({"tools": tools} if tools else {}),
     }).encode()
@@ -209,6 +211,7 @@ def chat(messages):
         "messages": messages,
         "max_tokens": MAX_TOKENS,
         "temperature": TEMP,
+        "repeat_penalty": REPEAT,
         "stream": False,
     }).encode()
     req = Request(api_url("/v1/chat/completions"), data=body,
@@ -387,7 +390,8 @@ def main():
             continue
 
         # --- Normal message ---
-        if lastQuery and len(raw.split()) <= 4:
+        ref = _re.search(r"\b\w*nya\b|itu|ini|dia|mereka|tadi|kok|kenapa|terus|lanjut|gimana|gitu", raw.lower())
+        if lastQuery and len(raw.split()) <= 4 and ref:
             raw = 'Pertanyaan lanjutan dari pencarian sebelumnya ("' + lastQuery + '"). Gunakan web_search dulu: ' + raw
         user_msg = {"role": "user", "content": raw}
         history.append(user_msg)
