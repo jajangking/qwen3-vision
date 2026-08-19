@@ -28,18 +28,17 @@ web() {
     if health; then
         bash "$DIR/vision_server.sh" web
     else
-        echo -e "${YELLOW}Server belum jalan. Start dulu?${RESET}"
-        read -p "start server? [Y/n]: " ans
-        [[ "${ans,,}" != "n" ]] && start && bash "$DIR/vision_server.sh" web
+        echo -e "${YELLOW}Server belum jalan. Pilih 1) Start server dulu.${RESET}"
+        read -p "enter..." 
     fi
 }
 
 cli() {
-    if ! health; then
-        echo -e "${YELLOW}Server belum jalan, start dulu...${RESET}"
-        start || { echo -e "${RED}Gagal start server${RESET}"; return 1; }
+    if health; then
+        python3 "$DIR/web/cli.py"
+    else
+        echo -e "${YELLOW}Server belum jalan. Pilih 1) Start server dulu.${RESET}"
     fi
-    python3 "$DIR/web/cli.py"
 }
 
 query() {
