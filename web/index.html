@@ -196,7 +196,7 @@ const $=s=>document.querySelector(s);
 const msgBox=$('#messages'), textInput=$('#text-input'), fileInput=$('#file-input');
 
 let cfg=JSON.parse(localStorage.getItem('vpsy5-cfg')||'null')||{
-  url:'http://127.0.0.1:8090',maxTokens:128,temp:0.7,sys:'Kamu adalah asisten yang ramah. Jangan memperkenalkan diri, jangan menyebut nama model, pencipta, atau kata "sistem AI". Langsung jawab pertanyaan user dengan ringkas dalam Bahasa Indonesia. Disiplin tool: jika ada tool yang tersedia untuk pertanyaan (deteksi objek, pencarian web, waktu, kalkulator, kamera), WAJIB panggil dulu sebelum menjawab. Jangan menjawab fakta terkini dari ingatan — gunakan web_search. Jawaban akhir harus berdasarkan hasil tool, bukan tebakan.'
+  url:'http://127.0.0.1:8090',maxTokens:128,temp:0.7,sys:'Kamu adalah asisten yang ramah. Jangan memperkenalkan diri, jangan menyebut nama model, pencipta, atau kata "sistem AI". Langsung jawab pertanyaan user dengan ringkas dalam Bahasa Indonesia. Disiplin tool: jika ada tool yang tersedia untuk pertanyaan (deteksi objek, pencarian web, waktu, kalkulator, kamera), WAJIB panggil dulu sebelum menjawab. Jangan menjawab fakta terkini dari ingatan — gunakan web_search. Jawaban akhir harus berdasarkan hasil tool, bukan tebakan. Jika user bertanya lanjutan singkat (mis. "wakilnya?", "berapa?", "kapan?") tentang topik fakta yang baru dibahas, WAJIB panggil web_search lagi dengan subyek yang diperluas.'
 };
 let history=[];
 let imageB64=null;
@@ -255,8 +255,11 @@ function removeImage(){imageB64=null;$('#preview-area').classList.remove('has-im
 
 // --- Send ---
 async function send(){
-  const text=textInput.value.trim();
+  let text=textInput.value.trim();
   if((!text&&!imageB64)||streaming)return;
+  if(lastQuery&&text&&!imageB64&&text.split(/\s+/).length<=4){
+    text='Pertanyaan lanjutan dari pencarian sebelumnya ("'+lastQuery+'"). Gunakan web_search dulu: '+text;
+  }
   const w=$('#welcome');if(w)w.remove();
   const userMsg={role:'user',content:[]};
   if(text)userMsg.content.push({type:'text',text});
@@ -319,7 +322,10 @@ async function dispatchTool(tc){
     if(name==='get_time')return JSON.stringify({
       waktu:new Intl.DateTimeFormat('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',timeZoneName:'short'}).format(new Date()),
       waktu_raw:new Date().toString()});
-    if(name==='web_search')return await webSearch(String(args.query||''));
+    if(name==='web_search'){
+    lastQuery=String(args.query||'');
+    return await webSearch(lastQuery);
+  }
     if(name==='calculate')return JSON.stringify(safeCalc(String(args.expr||'')));
     if(name==='take_photo')return await takePhoto();
     return JSON.stringify({error:'tool tidak dikenal: '+name});
@@ -369,7 +375,7 @@ function buildPayload(){
 }
 
 // --- Local object detection (COCO-SSD via TF.js/WebGL, jalan di browser) ---
-let detModel=null,detLoading=null;
+let detModel=null,detLoading=null,lastQuery='';
 async function loadDetector(){
   if(detModel)return detModel;
   if(!window.cocoSsd)throw new Error('coco-ssd tidak ke-load (perlu internet saat halaman dibuka)');
