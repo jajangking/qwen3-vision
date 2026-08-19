@@ -49,7 +49,40 @@ Model yang pernah diuji & digugurkan: `visionpsy-nano` (460M — chat echo/lemah
 - Stub `spawn.h` wajib (Termux tidak punya): `/data/data/com.termux/files/usr/include/spawn.h` (posix_spawn*).
 - Build: `cmake -DGGML_CUDA=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_UI=OFF`, target `llama-server` + `llama-mtmd-cli`.
 - `llama-server` butuh UI assets; kalau HF download gagal, buat dummy di `tools/ui/dist/` (index.html, loading.html, manifest.webmanifest, sw.js, build.json, version.json, bundle.js, bundle.css, workbox.js).
-- GPU accel: **Vulkan bisa jalan tanpa root** (paket `vulkan-loader-android` Termux auto-detect `vulkan.mali.so` sistem) — TAPI di Mali-G615 MC2 ggml-vulkan justru 4-24× LEBIH LAMBAT dari CPU (prompt 5.5 vs 19.2 t/s, gen 5.9 vs 10.7 t/s; prompt pertama ~0.8 t/s karena kompilasi shader). OpenCL: driver `libOpenCL.so` ada tapi di-*block* linker namespace Android (dlopen `/vendor` gagal dari Termux). Kesimpulan: CPU tetap juara; GPU tidak menolong di Mali murah.
+- HF download: `huggingface_hub` pip gagal (hf-xet build), pakai `curl -L` langsung.
+
+## Eksperimen GPU & tuner model (Agustus 2026) — semuanya diuji, hasil: CPU tetap juara
+
+### 1. Vulkan — jalan tanpa root, tapi MALAH lambat
+
+- Paket Termux: `vulkan-loader-android` (+ `vulkan-tools`) → auto-detect driver sistem. `vulkaninfo` = **Mali-G615 MC2** asli (bukan llvmpipe palsu).
+- Mainline `llama-cpp` + `llama-cpp-backend-vulkan` (b10290, prebuilt, tidak perlu compile) langsung jalan dengan `-ngl 99` dan mendukung model kita (qwen3vl/mtmd).
+- Hasil benchmark di Mali-G615 MC2: prompt **5.5 t/s vs CPU 19.2 t/s**, gen **5.9 vs 10.7 t/s** → GPU **4-24× lebih lambat** (prompt pertama 0.8 t/s, biaya kompilasi shader). Sama dengan laporan RK3588 (CPU 1.5s vs Vulkan 24s) dan diskusi ggml #9464 — ggml-vulkan dirancang untuk GPU desktop, jelek di Mali murah.
+
+### 2. OpenCL — diblokir sistem
+
+- Driver `libOpenCL.so` ADA di `/vendor/lib64/`, ICD loader Termux (`ocl-icd`) terpasang, `clinfo` → "Number of platforms 0".
+- Akar masalah: dlopen `/vendor/lib64/libOpenCL.so` dari Termux ditolak **linker namespace** Android (`dlopen failed: not accessible for the namespace "(default)"`). Vulkan lolos karena loader-nya jalan lewat jalur sistem; OpenCL tidak punya jalur itu.
+
+### 3. Tuner level model
+
+| Percobaan | Hasil |
+|---|---|
+| `MTMD_FORCE_BATCH=4096` (knob batch vision) | 18.0/10.7 t/s vs baseline 21.9/12.2 → **lebih lambat 3s** |
+| `--cache-type-k q8_0 --cache-type-v q8_0` | **crash saat boot** (fork tidak support, mati diam-diam) |
+| Re-quant `IQ4_XS` dari Q4_K_M | dilarang llama.cpp ("requantizing from type q4_K is disabled"); harus download Q8 2GB dulu, estimasi gain ~1s → tidak worth |
+| `-t 8` (8 thread, semua core) | 75s total (gen 1.6 t/s) → 3× lebih lambat, big.LITTLE contention |
+| `-b 2048 -ub 1024` + slices off + `-t 4 -C 0xF0` | **PEMENANG 21-27s** (satu-satunya yang lebih cepat) |
+
+Kesimpulan: 21s (encode ~15s + gen ~6s) = batas fisik 4×A76 untuk Qwen3-VL-2B. Di bawah itu butuh hardware beda; speculative decode (draft ~300MB) belum dicoba, estimasi hemat 1-2s saja.
+
+### 4. Bug seru: `pkill -f` membunuh shell sendiri
+
+Gejala: command yang berisi `pkill -9 -f "llama-s[e]rver"` + teks `llama-server` di baris yang sama (mis. untuk start ulang) hang tanpa output, seolah "stuck" — padahal tool/shell-nya **bunuh diri**.
+
+Penjelasan: shell wrapper dijalankan sebagai `bash -c '<seluruh command>'`, jadi cmdline proses wrapper mengandung teks literal `llama-server`. Regex `llama-s[e]rver` cocok dengan cmdline itu → `pkill -f` menembak proses sendiri, sesi mati.
+
+Solusi: `pkill -9 -x llama-server` — `-x` mencocokkan **nama proses persis** (comm `llama-server`), bukan teks cmdline, jadi aman dipakai di command mana pun. Alias aman lain: `pkill -f "llama-serve[r]"` (trik bracket tetap berfungsi selama literal nama binary tidak ikut tertulis di command).
 - HF download: `huggingface_hub` pip gagal (hf-xet build), pakai `curl -L` langsung.
 
 ## Struktur fork (llama.cpp patched)
