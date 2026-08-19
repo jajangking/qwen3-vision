@@ -67,6 +67,12 @@ main{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .bot-status{font-size:11px;color:var(--text2);padding:2px 2px 0;display:flex;gap:6px;align-items:center}
 .bot-status .spinner{width:12px;height:12px;border:2px solid var(--surface3);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* Detection overlay (COCO-SSD) */
+.det-layer{position:absolute;inset:0;pointer-events:none;z-index:5}
+.det-box{position:absolute;border:2px solid #ff5252;border-radius:4px;box-shadow:0 0 10px rgba(255,82,82,.55)}
+.det-box span{position:absolute;top:-19px;left:-2px;background:#ff5252;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;white-space:nowrap;text-shadow:none}
+#toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%);background:#1c2a38;color:#fff;padding:8px 16px;border-radius:20px;font-size:12px;opacity:0;transition:.3s;pointer-events:none;z-index:300;max-width:82%;text-align:center}
+#toast.show{opacity:1}
 /* Input */
 #input-bar{padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0}
 #preview-area{display:none;padding:8px 0}
@@ -113,6 +119,8 @@ label[for="file-input"]:hover{background:var(--surface3);color:var(--text)}
 #lightbox.show{display:flex}
 #lightbox img{max-width:95vw;max-height:90vh;border-radius:8px}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 </head>
 <body>
 
@@ -147,6 +155,7 @@ label[for="file-input"]:hover{background:var(--surface3);color:var(--text)}
       <label for="file-input" title="Kirim gambar">📷</label>
       <input type="file" id="file-input" accept="image/*">
       <textarea id="text-input" rows="1" placeholder="Ketik pesan..." autofocus></textarea>
+      <button class="btn-icon" onclick="detectLastImage()" title="Deteksi objek (lokal, cepat)">🎯</button>
       <button id="send-btn" onclick="send()" title="Kirim">➤</button>
     </div>
   </div>
@@ -247,73 +256,40 @@ function removeImage(){imageB64=null;$('#preview-area').classList.remove('has-im
 // --- Send ---
 async function send(){
   const text=textInput.value.trim();
-  if(!text&&!imageB64)return;
-  if(streaming)return;
-
-  // hide welcome
+  if((!text&&!imageB64)||streaming)return;
   const w=$('#welcome');if(w)w.remove();
-
-  // user message
   const userMsg={role:'user',content:[]};
   if(text)userMsg.content.push({type:'text',text});
-  if(imageB64){
-    userMsg.content.push({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+imageB64}});
-  }
+  if(imageB64)userMsg.content.push({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+imageB64}});
   history.push(userMsg);
   trimHistory();
-
   addMsg('user',text,imageB64);
   textInput.value='';textInput.style.height='auto';
   removeImage();
-
-  // bot placeholder
   const botDiv=addMsg('bot','',null,true);
+  const botBubble=botDiv.querySelector('.msg-bubble');
   startStatus(botDiv);
+  const t0=Date.now();
   streaming=true;
   $('#send-btn').disabled=true;
-  const t0=Date.now();
-  const botBubble=botDiv.querySelector('.msg-bubble');
 
+  let final='';
   try{
-    const body={
-      model:'visionpsy',
-      messages:buildPayload(),
-      max_tokens:cfg.maxTokens,
-      temperature:cfg.temp,
-      stream:true
-    };
-    const r=await fetch(cfg.url+'/v1/chat/completions',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
-    });
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const reader=r.body.getReader();
-    const dec=new TextDecoder();
-    let reply='',buffer='';
-    while(true){
-      const{done,value}=await reader.read();
-      if(done)break;
-      buffer+=dec.decode(value,{stream:true});
-      const lines=buffer.split('\n');
-      buffer=lines.pop();
-      for(const line of lines){
-        if(!line.startsWith('data: '))continue;
-        const data=line.slice(6);
-        if(data==='[DONE]')break;
-        try{
-          const obj=JSON.parse(data);
-          const token=obj.choices?.[0]?.delta?.content||'';
-          if(token){
-            reply+=token;
-            botBubble.textContent=reply;
-            scrollDown();
-          }
-        }catch{}
-      }
+    for(let round=0;round<4;round++){
+      const r=await streamOnce(botBubble);
+      if(r.reply){final=(final?final+'\n':'')+r.reply;botBubble.textContent=final;scrollDown();}
+      if(r.toolCalls.length){
+        botBubble.textContent=(final?final+'\n':'')+'<deteksi: menjalankan detektor objek lokal…>';
+        scrollDown();
+        history.push({role:'assistant',content:r.reply||null,tool_calls:r.toolCalls});
+        const dets=await runLocalDetection();
+        history.push({role:'tool',tool_call_id:r.toolCalls[0].id,content:JSON.stringify(dets)});
+        continue;
+      }else break;
     }
-    if(!reply)reply='(no response)';
+    if(!final.trim())final='(no response)';
     const elapsed=((Date.now()-t0)/1000).toFixed(1);
-    history.push({role:'assistant',content:reply});
-    renderBotLabel(botDiv,elapsed);
+    renderBotReply(botDiv,final,false,elapsed);
   }catch(e){
     const elapsed=((Date.now()-t0)/1000).toFixed(1);
     renderBotReply(botDiv,'Error: '+e.message,true,elapsed);
@@ -324,13 +300,95 @@ async function send(){
   textInput.focus();
 }
 
+async function streamOnce(botBubble){
+  const body={model:'visionpsy',messages:buildPayload(),max_tokens:cfg.maxTokens,temperature:cfg.temp,stream:true,
+    tools:[{type:'function',function:{name:'detect_objects',description:'Deteksi objek dan posisinya (bounding box) dalam gambar secara akurat, termasuk manusia (person).',parameters:{type:'object',properties:{}}}}]};
+  const r=await fetch(cfg.url+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const reader=r.body.getReader();
+  const dec=new TextDecoder();
+  let reply='',buffer='',toolCalls=[];
+  while(true){
+    const{done,value}=await reader.read();
+    if(done)break;
+    buffer+=dec.decode(value,{stream:true});
+    const lines=buffer.split('\n');buffer=lines.pop();
+    for(const line of lines){
+      if(!line.startsWith('data: '))continue;
+      const data=line.slice(6);
+      if(data==='[DONE]')break;
+      try{
+        const obj=JSON.parse(data);
+        const delta=obj.choices?.[0]?.delta||{};
+        if(delta.content){reply+=delta.content;botBubble.textContent=reply;scrollDown();}
+        if(delta.tool_calls)for(const tc of delta.tool_calls){
+          toolCalls[tc.index]=toolCalls[tc.index]||{type:'function',function:{name:'',arguments:''},id:tc.id||''};
+          if(tc.id)toolCalls[tc.index].id=tc.id;
+          if(tc.function&&tc.function.name)toolCalls[tc.index].function.name=tc.function.name;
+          if(tc.function&&tc.function.arguments)toolCalls[tc.index].function.arguments+=tc.function.arguments;
+        }
+      }catch{}
+    }
+  }
+  return {reply,toolCalls:toolCalls.filter(Boolean)};
+}
+
 function buildPayload(){
   const msgs=cfg.sys.trim()?[{role:'system',content:cfg.sys.trim()}]:[];
   for(const m of history){
-    if(m.role==='user')msgs.push(m);
-    else msgs.push({role:'assistant',content:m.content});
+    if(m.role==='tool')msgs.push(m);
+    else if(m.role==='user')msgs.push(m);
+    else msgs.push({role:'assistant',content:m.content||null, ...(m.tool_calls?{tool_calls:m.tool_calls}:{})});
   }
   return msgs;
+}
+
+// --- Local object detection (COCO-SSD via TF.js/WebGL, jalan di browser) ---
+let detModel=null,detLoading=null;
+async function loadDetector(){
+  if(detModel)return detModel;
+  if(!window.cocoSsd)throw new Error('coco-ssd tidak ke-load (perlu internet saat halaman dibuka)');
+  if(detLoading)return detLoading;
+  detLoading=(async()=>{detModel=await cocoSsd.load({base:'mobilenet_v2'});return detModel;})();
+  try{return await detLoading;}catch(e){detLoading=null;throw e;}
+}
+async function runLocalDetection(){
+  toast('Memuat model deteksi (sekali saja)…');
+  const model=await loadDetector();
+  let imgEl=document.querySelector('.msg.user .img-wrap img:not(.det-done)')||document.querySelector('.msg.user .img-wrap img');
+  if(!imgEl)return [];
+  const preds=await model.detect(imgEl);
+  const dets=preds.filter(p=>p.score>0.5).map(p=>({class:p.class,score:+p.score.toFixed(2),bbox:Array.from(p.bbox)}));
+  drawBoxes(imgEl,dets);
+  toast(dets.length?('Deteksi: '+dets.map(d=>d.class+' '+Math.round(d.score*100)+'%').join(', ')):'Tidak ada objek terdeteksi');
+  return dets;
+}
+async function detectLastImage(){
+  if(streaming){toast('Tunggu sampai selesai dulu');return;}
+  const imgEl=document.querySelector('.msg.user .img-wrap img');
+  if(!imgEl){toast('Kirim gambar dulu, lalu tekan 🎯');return;}
+  try{await runLocalDetection();}catch(e){toast('Gagal: '+e.message);}
+}
+function drawBoxes(imgEl,dets){
+  const wrap=imgEl.parentElement;
+  wrap.querySelectorAll('.det-layer').forEach(x=>x.remove());
+  const layer=document.createElement('div');layer.className='det-layer';
+  const W=imgEl.naturalWidth||imgEl.width, H=imgEl.naturalHeight||imgEl.height;
+  dets.forEach(d=>{
+    const[bx,by,bw,bh]=d.bbox;
+    const box=document.createElement('div');box.className='det-box';
+    box.style.left=(bx/W*100)+'%';box.style.top=(by/H*100)+'%';
+    box.style.width=(bw/W*100)+'%';box.style.height=(bh/H*100)+'%';
+    box.innerHTML='<span>'+d.class+' '+Math.round(d.score*100)+'%</span>';
+    layer.appendChild(box);
+  });
+  wrap.appendChild(layer);
+  imgEl.classList.add('det-done');
+}
+function toast(msg){
+  let t=$('#toast');
+  if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t);}
+  t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),4000);
 }
 
 // --- Render messages ---
