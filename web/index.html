@@ -269,6 +269,7 @@ async function send(){
   addMsg('user',text,imageB64);
   textInput.value='';textInput.style.height='auto';
   removeImage();
+  turnHasImg=!!imageB64;
   const botDiv=addMsg('bot','',null,true);
   const botBubble=botDiv.querySelector('.msg-bubble');
   startStatus(botDiv);
@@ -546,7 +547,7 @@ function renderBotLabel(div,elapsed){
 }
 
 // --- Live status (scan image + processing, via /slots) ---
-let slotTimer=null, statusTxt=null, startT=0;
+let slotTimer=null, statusTxt=null, startT=0, turnHasImg=false;
 function setScanning(on){
   const w=document.querySelector('.msg.user .img-wrap');
   if(w)w.classList.toggle('scanning',on);
@@ -570,9 +571,9 @@ function tickStatus(){
     let txt;
     if(a){
       const tot=a.n_prompt_tokens||0, done=a.n_prompt_tokens_processed||0;
-      if(tot>0&&done<tot-1)txt='membaca gambar '+done+'/'+tot+' token';
+      if(tot>0&&done<tot-1)txt=turnHasImg?('membaca gambar '+done+'/'+tot+' token'):('memproses pertanyaan '+done+'/'+tot+' token');
       else if(tot>0)txt='menulis jawaban&hellip; '+el;
-      else txt='membaca gambar&hellip; '+el;
+      else txt=(turnHasImg?'membaca gambar':'memproses pertanyaan')+'&hellip; '+el;
       if(pct&&tot>0)pct.textContent=done+'/'+tot;
     } else txt='memproses&hellip; '+el;
     if(statusTxt)statusTxt.innerHTML=txt;
