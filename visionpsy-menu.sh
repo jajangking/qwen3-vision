@@ -70,9 +70,13 @@ switch_model() {
 }
 
 menu() {
+    if ! health; then
+        echo -e "${YELLOW}Menyiapkan server...${RESET}"
+        start
+    fi
     while true; do
         clear
-        echo -e "${BOLD}${CYAN}VisionPsy - Nano 460M${RESET}"
+        echo -e "${BOLD}${CYAN}Qwen3-VL-2B${RESET}"
         server_status
         echo -e "
   1) Start server
