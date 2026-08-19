@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VisionPsy</title>
+<title>Qwen3-VL-2B</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -98,7 +98,7 @@ label[for="file-input"]:hover{background:var(--surface3);color:var(--text)}
 <body>
 
 <header>
-  <h1><span>Vision</span>Psy</h1>
+  <h1>Qwen3-VL-2B</h1>
   <span class="dot loading" id="dot"></span>
   <span id="status-text">connecting...</span>
   <button class="btn-icon" onclick="clearChat()" title="New chat">New</button>
@@ -108,7 +108,7 @@ label[for="file-input"]:hover{background:var(--surface3);color:var(--text)}
 <main>
   <div id="messages">
     <div id="welcome">
-      <h2>VisionPsy Chat</h2>
+      <h2>Qwen3-VL-2B Chat</h2>
       <p>Kirim pesan teks atau gambar. Model dapat menganalisis gambar yang dikirim.</p>
       <div class="tips">
         <span class="tip" onclick="sendTip(this)">Apa isi gambar ini?</span>
@@ -208,7 +208,7 @@ fileInput.addEventListener('change',function(){
   const f=this.files[0];if(!f)return;
   const img=new Image();
   img.onload=()=>{
-    const max=1024;
+    const max=640;
     const s=Math.min(1,max/Math.max(img.width,img.height));
     const c=document.createElement('canvas');
     c.width=Math.max(1,Math.round(img.width*s));
@@ -334,7 +334,7 @@ function addMsg(role,text,img,loading){
   }
   const label=document.createElement('div');
   label.className='msg-label';
-  label.textContent=role==='user'?'You':'VisionPsy';
+  label.textContent=role==='user'?'You':'Qwen3-VL-2B';
   div.appendChild(label);
   msgBox.appendChild(div);
   scrollDown();
@@ -349,14 +349,14 @@ function renderBotReply(div,text,isError,elapsed){
   div.appendChild(bubble);
   if(elapsed){
     const lbl=div.querySelector('.msg-label');
-    if(lbl)lbl.innerHTML='VisionPsy <span class="time">'+elapsed+'s</span>';
+    if(lbl)lbl.innerHTML='Qwen3-VL-2B <span class="time">'+elapsed+'s</span>';
   }
   scrollDown();
 }
 
 function renderBotLabel(div,elapsed){
   const lbl=div.querySelector('.msg-label');
-  if(lbl)lbl.innerHTML='VisionPsy <span class="time">'+elapsed+'s</span>';
+  if(lbl)lbl.innerHTML='Qwen3-VL-2B <span class="time">'+elapsed+'s</span>';
   scrollDown();
 }
 
@@ -372,7 +372,7 @@ function clearChat(){
   history=[];
   msgBox.innerHTML=`
     <div id="welcome">
-      <h2>VisionPsy Chat</h2>
+      <h2>Qwen3-VL-2B Chat</h2>
       <p>Kirim pesan teks atau gambar. Model dapat menganalisis gambar yang dikirim.</p>
       <div class="tips">
         <span class="tip" onclick="sendTip(this)">Apa isi gambar ini?</span>
