@@ -49,7 +49,7 @@ Model yang pernah diuji & digugurkan: `visionpsy-nano` (460M — chat echo/lemah
 - Stub `spawn.h` wajib (Termux tidak punya): `/data/data/com.termux/files/usr/include/spawn.h` (posix_spawn*).
 - Build: `cmake -DGGML_CUDA=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_UI=OFF`, target `llama-server` + `llama-mtmd-cli`.
 - `llama-server` butuh UI assets; kalau HF download gagal, buat dummy di `tools/ui/dist/` (index.html, loading.html, manifest.webmanifest, sw.js, build.json, version.json, bundle.js, bundle.css, workbox.js).
-- GPU accel (Vulkan/OpenCL) tidak mungkin: driver Mali terkunci, butuh root.
+- GPU accel: **Vulkan bisa jalan tanpa root** (paket `vulkan-loader-android` Termux auto-detect `vulkan.mali.so` sistem) — TAPI di Mali-G615 MC2 ggml-vulkan justru 4-24× LEBIH LAMBAT dari CPU (prompt 5.5 vs 19.2 t/s, gen 5.9 vs 10.7 t/s; prompt pertama ~0.8 t/s karena kompilasi shader). OpenCL: driver `libOpenCL.so` ada tapi di-*block* linker namespace Android (dlopen `/vendor` gagal dari Termux). Kesimpulan: CPU tetap juara; GPU tidak menolong di Mali murah.
 - HF download: `huggingface_hub` pip gagal (hf-xet build), pakai `curl -L` langsung.
 
 ## Struktur fork (llama.cpp patched)
