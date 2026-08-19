@@ -7,7 +7,7 @@ from urllib.error import URLError
 SERVER = os.environ.get("VPSY_URL", "http://127.0.0.1:8090")
 MAX_TOKENS = int(os.environ.get("VPSY_MAX_TOKENS", "256"))
 TEMP = float(os.environ.get("VPSY_TEMP", "0.7"))
-SYSTEM_PROMPT = os.environ.get("VPSY_SYS", "Asisten AI. Jawab singkat dalam Bahasa Indonesia.")
+SYSTEM_PROMPT = os.environ.get("VPSY_SYS", "Kamu asisten ramah. Jawab ringkas dalam Bahasa Indonesia, maksimal 3 kalimat. Disiplin tool: user tanya tahun/tanggal/hari/jam -> panggil get_time. User tanya tokoh/pejabat/presiden/berita/fakta terkini -> panggil web_search dulu, lalu jawab HANYA dari hasil tool. User minta hitung matematika -> panggil calculate. Jangan menjawab dari ingatan untuk fakta terkini. Jika user bertanya 'kamu bisa apa' atau 'tool apa', sebutkan tool yang kamu punya: web_search (cari info terkini), get_time (waktu), calculate (kalkulator).")
 MAX_HISTORY = 20  # keep last N messages for fast prompt processing
 
 BOLD  = "\033[1m"
@@ -45,14 +45,15 @@ def check_health():
     except Exception:
         return False
 
-def chat_stream(messages):
-    """Stream response token-by-token for instant output."""
+def chat_stream(messages, tools=None):
+    """Stream response token-by-token. Returns (full_text, tool_calls)."""
     body = json.dumps({
         "model": "visionpsy",
         "messages": messages,
         "max_tokens": MAX_TOKENS,
         "temperature": TEMP,
         "stream": True,
+        **({"tools": tools} if tools else {}),
     }).encode()
 
     path = "/v1/chat/completions"
@@ -62,15 +63,19 @@ def chat_stream(messages):
                      headers={"Content-Type": "application/json"})
         resp = conn.getresponse()
     except (ConnectionError, OSError):
-        global _conn
-        _conn = None
-        conn = get_conn()
-        conn.request("POST", path, body=body,
-                     headers={"Content-Type": "application/json"})
-        resp = conn.getresponse()
+            global _conn
+            _conn = None
+            conn = get_conn()
+            conn.request("POST", path, body=body,
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+
+    if os.environ.get("VPSY_DEBUG"):
+        print(f"{CYAN}[dbg] round messages={len(messages)} tools={'YES' if tools else 'no'}{RESET}", file=sys.stderr, flush=True)
 
     full_text = ""
     buffer = ""
+    tool_calls = []
     while True:
         chunk = resp.readline()
         if not chunk:
@@ -89,10 +94,110 @@ def chat_stream(messages):
                 full_text += token
                 sys.stdout.write(token)
                 sys.stdout.flush()
+            for tc in (delta.get("tool_calls") or []):
+                idx = tc.get("index", len(tool_calls))
+                while len(tool_calls) <= idx:
+                    tool_calls.append({"type": "function", "function": {"name": "", "arguments": ""}, "id": ""})
+                if os.environ.get("VPSY_DEBUG"):
+                    print(f"{CYAN}[dbg-tc] {json.dumps(tc)}{RESET}", file=sys.stderr, flush=True)
+                if tc.get("id"):
+                    tool_calls[idx]["id"] = tc["id"]
+                if tc.get("function", {}).get("name"):
+                    tool_calls[idx]["function"]["name"] = tc["function"]["name"]
+                if tc.get("function", {}).get("arguments"):
+                    tool_calls[idx]["function"]["arguments"] += tc["function"]["arguments"]
         except json.JSONDecodeError:
             continue
     print()  # newline after streaming
-    return full_text
+    if os.environ.get("VPSY_DEBUG"):
+        print(f"{CYAN}[dbg] reply={full_text[-60:]!r} n_tool_calls={len([t for t in tool_calls if t['function']['name']])}{RESET}", file=sys.stderr, flush=True)
+    return full_text, [t for t in tool_calls if t["function"]["name"]]
+
+TOOLS = [
+    {"type": "function", "function": {"name": "get_time", "description": "AMBIL TANGGAL/JAM SEKARANG. Panggil jika user menanyakan tahun, tanggal, hari, bulan, atau jam sekarang (contoh: tahun berapa sekarang, hari ini tanggal berapa).", "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "web_search", "description": "CARI DI INTERNET untuk fakta/jawaban. WAJIB dipanggil untuk pertanyaan tentang tokoh, pejabat, presiden, politik, berita, harga, dan fakta terkini yang bisa berubah. DILARANG menjawab dari ingatan untuk pertanyaan ini. Jangan ganti dengan get_time.", "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "Kata kunci pencarian dalam Bahasa Indonesia"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "calculate", "description": "Hitung ekspresi matematika akurat. Contoh: 2+3*4, (10-4)/2, sqrt(144).", "parameters": {"type": "object", "properties": {"expr": {"type": "string", "description": "Ekspresi matematika"}}, "required": ["expr"]}}},
+]
+
+import ast as _ast, operator as _op, math as _math, re as _re
+
+_OP = {_ast.Add: _op.add, _ast.Sub: _op.sub, _ast.Mult: _op.mul,
+       _ast.Div: _op.truediv, _ast.Mod: _op.mod, _ast.Pow: _op.pow,
+       _ast.USub: _op.neg, _ast.UAdd: _op.pos}
+
+def _eval_expr(node):
+    if isinstance(node, _ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, _ast.BinOp) and type(node.op) in _OP:
+        return _OP[type(node.op)](_eval_expr(node.left), _eval_expr(node.right))
+    if isinstance(node, _ast.UnaryOp) and type(node.op) in _OP:
+        return _OP[type(node.op)](_eval_expr(node.operand))
+    if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name) and node.func.id == "sqrt" and len(node.args) == 1:
+        return math.sqrt(_eval_expr(node.args[0]))
+    raise ValueError("ekspresi tidak valid")
+
+def safe_calc(expr):
+    expr = _re.sub(r"[^0-9+\-*/().%^sqrt a-z]", "", expr.lower())
+    tree = _ast.parse(expr.replace("^", "**"), mode="eval")
+    return str(_eval_expr(tree.body))
+
+def dispatch_tool(name, args):
+    if name == "get_time":
+        from datetime import datetime
+        now = datetime.now()
+        weekdays = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+        months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                  "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+        t = f"{weekdays[now.weekday()]}, {now.day} {months[now.month-1]} {now.year}, {now.hour:02d}:{now.minute:02d}"
+        return json.dumps({"waktu": t, "waktu_raw": now.isoformat()})
+    if name == "web_search":
+        q = str(args.get("query", ""))
+        d = None
+        for attempt in range(2):
+            try:
+                req = Request("http://127.0.0.1:8091/search?q=" + urllib.parse.quote(q))
+                d = json.loads(urlopen(req, timeout=30).read().decode())
+                break
+            except Exception as e:
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
+                return "INSTRUKSI: Cari gagal. Jawab: datanya tidak ditemukan.\n\nDATA PENCARIAN: (error: " + str(e) + ")"
+        hasil = d.get("hasil") or "(tidak ada hasil)"
+        sumber = ", ".join(d.get("sumber") or [])
+        return "INSTRUKSI: Jawab HANYA berdasarkan DATA PENCARIAN di bawah ini. JANGAN memakai ingatan sendiri. Jika datanya tidak menyebut jawabannya, katakan datanya tidak ditemukan.\n\nDATA PENCARIAN (query: " + q + "):\n" + hasil + ("\n\nSUMBER: " + sumber if sumber else "")
+    if name == "calculate":
+        try:
+            return json.dumps({"hasil": safe_calc(str(args.get("expr", "")))}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"hasil": None, "error": str(e)})
+    return json.dumps({"error": "tool tidak dikenal: " + name})
+
+def agent_loop(messages):
+    """Multi-round tool-calling loop. Streams final answer."""
+    seen = set()
+    for round_i in range(4):
+        reply, tool_calls = chat_stream(messages, TOOLS)
+        if not tool_calls:
+            return reply
+        sig = tuple((t["function"]["name"], t["function"]["arguments"]) for t in tool_calls)
+        if sig in seen:
+            return reply + ("\n\n(Maaf, gagal mendapatkan data. Coba ulangi lagi.)" if reply else "Maaf, gagal mendapatkan data. Coba ulangi lagi.")
+        seen.add(sig)
+        history.append({"role": "assistant", "content": reply or None, "tool_calls": tool_calls})
+        for tc in tool_calls:
+            name = tc["function"]["name"]
+            try:
+                args = json.loads(tc["function"]["arguments"] or "{}")
+            except Exception:
+                args = {}
+            print(f"{DIM}  -> tool: {name} {json.dumps(args, ensure_ascii=False) if args else ''}{RESET}", flush=True)
+            res = dispatch_tool(name, args)
+            if os.environ.get("VPSY_DEBUG"):
+                print(f"{CYAN}[dbg-toolres] id={tc.get('id')!r} res={res[:90]!r}{RESET}", file=sys.stderr, flush=True)
+            history.append({"role": "tool", "tool_call_id": tc.get("id") or "", "content": res})
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+    return ""
 
 def chat(messages):
     """Non-streaming fallback."""
@@ -267,7 +372,7 @@ def main():
                 msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + history
                 try:
                     t0 = time.time()
-                    reply = chat_stream(msgs)
+                    reply, _ = chat_stream(msgs)
                     elapsed = time.time() - t0
                     history.append({"role": "assistant", "content": reply})
                     print(f"{DIM}({elapsed:.1f}s){RESET}")
@@ -287,7 +392,7 @@ def main():
 
         try:
             t0 = time.time()
-            reply = chat_stream(msgs)
+            reply = agent_loop([{"role": "system", "content": SYSTEM_PROMPT}] + history)
             elapsed = time.time() - t0
             history.append({"role": "assistant", "content": reply})
             print(f"{DIM}({elapsed:.1f}s){RESET}")
