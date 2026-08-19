@@ -96,5 +96,16 @@ Solusi: `pkill -9 -x llama-server` — `-x` mencocokkan **nama proses persis** (
 - `visionpsy-menu.sh` — menu: start/stop/web/chat/query
 - `visionpsy` — one-shot CLI (start server kalau belum, auto-reconnect)
 - `web/cli.py` — chat CLI streaming (http.client persistent, `/img`, `/sys`, `/clr`, `/t`, `/help`)
-- `web/index.html` — web UI (canvas resize, streaming, lightbox)
+- `web/index.html` — web UI (canvas resize, streaming, lightbox, scan animasi, AGENT tool-calling)
 - `resize.py` — Pillow resize JPEG (dipakai query)
+## Tool calling (Agent) — Agustus 2026
+
+Model (Qwen3-VL-2B via OpenAI function-calling) bisa memanggil tool yang dieksekusi LOKAL di browser:
+
+- `detect_objects` — COCO-SSD (TensorFlow.js + WebGL, GPU Mali) → bounding box digambar di atas foto, koordinat ASLI dikembalikan ke model → jawaban grounded ke deteksi sungguhan (model sendiri TIDAK bisa grounding pixel).
+- `get_time` — tanggal/waktu sekarang + timezone.
+- `web_search` — DuckDuckGo Instant Answer API (+fallback Wikipedia), tanpa API key.
+- `calculate` — parser matematika aman (regex-whitelist, tanpa eval mentah).
+- `take_photo` — getUserMedia: kamera HP dibuka, foto diambil, dilampirkan ke percakapan.
+
+Loop: model panggil tool → UI eksekusi di browser → hasil ({tool_call_id}) dikembalikan → model lanjut sampai jawaban final (maks 4 ronde). Deteksi manual: tombol 🎯.
