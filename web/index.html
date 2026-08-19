@@ -279,11 +279,14 @@ async function send(){
       const r=await streamOnce(botBubble);
       if(r.reply){final=(final?final+'\n':'')+r.reply;botBubble.textContent=final;scrollDown();}
       if(r.toolCalls.length){
-        botBubble.textContent=(final?final+'\n':'')+'<deteksi: menjalankan detektor objek lokal…>';
+        botBubble.textContent=(final?final+'\n':'')+'<menjalankan tool: '+r.toolCalls.map(t=>t.function.name).join(', ')+'…>';
         scrollDown();
         history.push({role:'assistant',content:r.reply||null,tool_calls:r.toolCalls});
-        const dets=await runLocalDetection();
-        history.push({role:'tool',tool_call_id:r.toolCalls[0].id,content:JSON.stringify(dets)});
+        for(const tc of r.toolCalls){
+          const res=await dispatchTool(tc);
+          history.push({role:'tool',tool_call_id:tc.id,content:res});
+          toast('Tool '+tc.function.name+' selesai');
+        }
         continue;
       }else break;
     }
@@ -300,9 +303,29 @@ async function send(){
   textInput.focus();
 }
 
+const TOOLS=[
+  {type:'function',function:{name:'detect_objects',description:'Deteksi objek dan posisinya (bounding box) dalam gambar secara akurat, termasuk manusia (person).',parameters:{type:'object',properties:{}}}},
+  {type:'function',function:{name:'get_time',description:'Dapatkan tanggal dan waktu saat ini.',parameters:{type:'object',properties:{}}}},
+  {type:'function',function:{name:'web_search',description:'Cari informasi terbaru di internet tentang suatu topik.',parameters:{type:'object',properties:{query:{type:'string',description:'Kata kunci pencarian'}},required:['query']}}},
+  {type:'function',function:{name:'calculate',description:'Hitung ekspresi matematika secara akurat, misalnya "2+3*4" atau "sqrt(144)".',parameters:{type:'object',properties:{expr:{type:'string',description:'Ekspresi matematika'}},required:['expr']}}},
+  {type:'function',function:{name:'take_photo',description:'Ambil foto baru dengan kamera perangkat.',parameters:{type:'object',properties:{}}}}
+];
+async function dispatchTool(tc){
+  const name=tc.function.name;
+  let args={};
+  try{args=tc.function.arguments?JSON.parse(tc.function.arguments):{};}catch{}
+  try{
+    if(name==='detect_objects')return JSON.stringify(await runLocalDetection());
+    if(name==='get_time')return JSON.stringify({now:new Date().toString(),iso:new Date().toISOString(),timezone:Intl.DateTimeFormat().resolvedOptions().timeZone});
+    if(name==='web_search')return await webSearch(String(args.query||''));
+    if(name==='calculate')return JSON.stringify(safeCalc(String(args.expr||'')));
+    if(name==='take_photo')return await takePhoto();
+    return JSON.stringify({error:'tool tidak dikenal: '+name});
+  }catch(e){return JSON.stringify({error:String(e&&e.message||e)});}
+}
 async function streamOnce(botBubble){
   const body={model:'visionpsy',messages:buildPayload(),max_tokens:cfg.maxTokens,temperature:cfg.temp,stream:true,
-    tools:[{type:'function',function:{name:'detect_objects',description:'Deteksi objek dan posisinya (bounding box) dalam gambar secara akurat, termasuk manusia (person).',parameters:{type:'object',properties:{}}}}]};
+    tools:TOOLS};
   const r=await fetch(cfg.url+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok)throw new Error('HTTP '+r.status);
   const reader=r.body.getReader();
@@ -389,6 +412,62 @@ function toast(msg){
   let t=$('#toast');
   if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t);}
   t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),4000);
+}
+
+// --- Tools: web search (DuckDuckGo), kalkulator aman, kamera ---
+async function webSearch(query){
+  try{
+    const r=await fetch('https://api.duckduckgo.com/?q='+encodeURIComponent(query)+'&format=json&no_html=1&skip_disambig=1');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const rel=(d.RelatedTopics||[]).filter(t=>t.Text).slice(0,5).map(t=>t.Text);
+    return JSON.stringify({query,abstract:d.AbstractText||'',results:rel});
+  }catch(e){
+    try{
+      const r=await fetch('https://en.wikipedia.org/w/api.php?action=opensearch&search='+encodeURIComponent(query)+'&limit=5&format=json&origin=*');
+      const d=await r.json();
+      return JSON.stringify({query,abstract:'[fallback wikipedia]',results:d[1]||[]});
+    }catch(e2){return JSON.stringify({error:'pencarian gagal: '+(e2.message||e.message)});}
+  }
+}
+function safeCalc(expr){
+  expr=expr.replace(/\^/g,'**').replace(/,/g,'.');
+  if(!/^[0-9+\-*/().%\s]+$/.test(expr))return {error:'ekspresi tidak valid'};
+  try{
+    let v=Function('"use strict";return ('+expr.replace(/(\d+)\s*%/g,'($1/100)')+')')();
+    if(typeof v==='number'&&isFinite(v))return {expr,result:+v.toFixed(6)};
+    return {error:'hasil bukan angka'};
+  }catch(e){return {error:'ekspresi tidak valid'};}
+}
+async function takePhoto(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return JSON.stringify({error:'kamera tidak didukung browser ini'});
+  return new Promise(resolve=>{
+    navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}).then(stream=>{
+      const video=document.createElement('video');
+      video.srcObject=stream;video.setAttribute('playsinline','');video.muted=true;
+      video.onloadedmetadata=()=>{
+        video.play().then(()=>{
+          setTimeout(()=>{
+            const canvas=document.createElement('canvas');
+            const s=Math.min(1,640/video.videoWidth);
+            canvas.width=Math.max(1,Math.round(video.videoWidth*s));
+            canvas.height=Math.max(1,Math.round(video.videoHeight*s));
+            canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+            stream.getTracks().forEach(t=>t.stop());
+            const b64=canvas.toDataURL('image/jpeg',0.75).split(',')[1];
+            addMsg('user','📷 foto dari kamera',b64);
+            history.push({role:'user',content:[
+              {type:'text',text:'[Foto diambil dari kamera, analisis gambar ini]'},
+              {type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}}]});
+            trimHistory();
+            scrollDown();
+            resolve(JSON.stringify({status:'ok',message:'Foto berhasil diambil dan dilampirkan sebagai gambar terbaru' }));
+          },350);
+        }).catch(e=>{stream.getTracks().forEach(t=>t.stop());resolve(JSON.stringify({error:'gagal memutar kamera: '+e.message}));});
+      };
+      video.onerror=()=>{stream.getTracks().forEach(t=>t.stop());resolve(JSON.stringify({error:'gagal membaca kamera'}));};
+    }).catch(e=>resolve(JSON.stringify({error:'izin kamera ditolak: '+e.message})));
+  });
 }
 
 // --- Render messages ---
