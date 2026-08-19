@@ -136,9 +136,12 @@ menu() {
         bar_sep
         printf "${CYAN}║${RESET}  %b  ${DIM}%s${RESET}%*s${CYAN}║${RESET}\n" "$st" "$cur" "$((W-8-${#cur}))" ""
         bar_sep
-        panj_lr "1" "Web UI" "2" "Chat CLI"
-        panj_lr "3" "Query" "4" "Status"
-        panj_lr "5" "Model" "0" "Keluar"
+        panj_mid "1" "Web UI"
+        panj_mid "2" "Chat CLI"
+        panj_mid "3" "Query gambar"
+        panj_mid "4" "Status"
+        panj_mid "5" "Ganti model"
+        panj_mid "0" "Keluar"
         bar_bot
         echo
         read -p "pilih: " opt
