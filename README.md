@@ -170,3 +170,17 @@ Diverifikasi HF Agustus 2026.
 GGUF resmi komunitas: `unsloth/DeepSeek-V4-Flash-0731-GGUF` (UD-IQ1 s/d Q4_K).
 Catatan CAISI (NIST): V4-Pro ketinggalan frontier ±8 bln di pengukuran independen (SWE 74%).
 Kesimpulan buat HP: semua kelas besar tidak muat; tetap mini-coder-1.7b/4b (headline riset di atas).
+
+### Explorasi luas: kandidat kecil terbaru (Agustus 2026) — diverifikasi HF
+| Model | Rilis | Vision | Ukuran Q4 | t/s HP | Tool | GGUF |
+|---|---|---|---|---|---|---|
+| Qwen3.5-4B | Feb-26 | ya (video) | 2.74GB | 12-15 | BFCL 50.3 | unsloth/Qwen3.5-4B-GGUF ✅ + mmproj |
+| LFM2.5-VL-3B (Liquid) | 12-Agu-26 | ya | ~3GB | 20 (S26) | TS 59.5, BFCL 32.5 | LiquidAI/LFM2.5-VL-3B-GGUF ✅ 10 GGUF + 3 mmproj |
+| LFM2.5-2.6B (Liquid) | Agu-26 | tidak | <2.5GB | 30 | TS 77.8 (terbaik!), BFCL 56.9, IF terbaik | LiquidAI/LFM2.5-2.6B-GGUF ✅ |
+| Gemma 4 E4B | Apr-26 | ya (+audio) | ~2.7GB | 14-17 | BFCL mid-80 (native tool token) | unsloth/gemma-4-E4B-it-GGUF ✅ + qat |
+| MiniCPM5-1B | Mei-26 | tidak | ~1GB | sangat cepat | 1B SOTA | openbmb/MiniCPM5-1B-GGUF ✅ Q4_K_M |
+| Qwen3.8-27B | 14-Agu-26 | ya | besar | - | kuat | ✅ tapi kebesaran utk HP |
+
+Catatan: LFM2.5-2.6B = spesialis agent text (AA Omniscience terbaik, Multi-IF 80),
+non-reasoning -> latency rendah. Verdict: Qwen3.5-4B tetap pilihan utama (vision +
+tool-calling + drop-in keluarga Qwen); LFM2.5-VL-3B alternatif paling ngebut.
