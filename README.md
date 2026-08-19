@@ -109,3 +109,43 @@ Model (Qwen3-VL-2B via OpenAI function-calling) bisa memanggil tool yang dieksek
 - `take_photo` — getUserMedia: kamera HP dibuka, foto diambil, dilampirkan ke percakapan.
 
 Loop: model panggil tool → UI eksekusi di browser → hasil ({tool_call_id}) dikembalikan → model lanjut sampai jawaban final (maks 4 ronde). Deteksi manual: tombol 🎯.
+
+## Riset model coding kecil-kekuatan (Agustus 2026) — ditampung
+
+Pertanyaan: model AI coding open-source terbaik yang ringan & muat HP (TECNO LJ8k:
+7.3GB RAM, A76+A55, CPU-only efektif, llama.cpp b10290 sudah ada).
+
+### Peta lanskap per kelas ukuran
+| Kelas        | Model terbaik                                          | Skor kunci                                  | Muat HP-mu? |
+|--------------|--------------------------------------------------------|---------------------------------------------|-------------|
+| 1B           | mini-coder-1.7b; MiniCPM5-1B                           | SWE 18.6 (kalah SWE-agent-LM 7B=15.2)       | ya (paling pas) |
+| 3-4B         | mini-coder-4b; Phi-4-mini 3.8B; Qwen3-4B-2507; Gemma 4 E4B | SWE 26.8 ≈ gpt-oss-120b; BFCL 0.50-0.88  | ketat tapi muat |
+| 7-8B         | IBM Granite 4.1 8B                                    | BFCL 0.68, butuh 10-12GB RAM                | tidak |
+| 24B+ lokal   | Devstral Small 2; Gemma 4 31B; Qwen3.6 27B/35B-A3B    | SWE 68-77                                   | tidak (butuh GPU) |
+| Frontier/API | DeepSeek V4 Pro/Flash; Kimi K2.6/2.7; GLM-5.x; Qwen3-Coder-Next 80B-A3B | SWE 70-80+                     | server/GPU |
+
+### Aturan main (dari BFCL/SWE-bench/agentic 2026)
+1. **Lantai keandalan tool-calling ≈ 4B** — di bawah itu pakai specialist
+   fine-tune (mini-coder) bukan generalist; Qwen3.5: 2B=0.436, 4B=0.503, 9B=0.661.
+2. **Kuantisasi jangan di bawah Q5 untuk agen** — Q4 turun ~4-6 poin tool-call
+   validity, Q3 tidak layak. Q6 lebih baik lagi kalau muat.
+3. **Grammar-constrained decoding** (llama.cpp `--grammar` / Outlines / Guidance)
+   memotong kegagalan tool-call hampir setengah (84.7%->97% utk Granite 4.1 8B Q4).
+4. **Konteks kecil = ringkas** — model kecil ambruk di 32-48k; summarization
+   scrollback tiap ~10 turn mengalahkan jendela konteks panjang mentah.
+5. Param count prediktor lemah di bawah 8B (non-monotonik) — nilai per-benchmark,
+   bukan per-parameter.
+
+### Shortlist untuk hp ini
+- **Pilihan utama**: `mini-coder-4b Q4_K_M` (~2.6GB) — SWE-bench 26.8 ≈ gpt-oss-120b,
+  muat di 7.3GB. Sumber GGUF: HF `mradermacher/TinyQwen3-distill-4B-coder-GGUF` /
+  distilat asli `ricdomolm/mini-coder-4b` (Q8_0 `4iqq/mini-coder-4b-Q8_0-GGUF` 4.28GB).
+- **Paling ngebut**: `mini-coder-1.7b` Q8_0 1.83GB (`sizzlebop/mini-coder-1.7b-Q8_0-GGUF`)
+  atau IQ4_NL 1.05GB.
+- Cadangan matang: Phi-4-mini 3.8B (MIT, native tool token, Q4 2.5GB, `unsloth/Phi-4-mini-instruct-GGUF`).
+- Semua pakai template Qwen3/ChatML — jalan di mainline llama.cpp (bukan fork mtmd vision).
+- Integrasi: taruh di `~/visionpsy/models/<nama>/model.gguf` (tanpa mmproj) + `cli.py`
+  base server OpenAI-compatible yang sama.
+
+### Status
+Ditampung (belum diunduh/dipasang). Download menunggu keputusan user.
