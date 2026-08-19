@@ -94,7 +94,11 @@ menu() {
             5) read -p "path gambar: " img; query "$img" ;;
             6) server_status;       read -p "enter..." ;;
             7) switch_model;        read -p "enter..." ;;
-            0|q) break ;;
+            0|q) echo -e "${DIM}mematikan server...${RESET}"
+                 stop
+                 lsof -ti :$WEB_PORT 2>/dev/null | xargs -r kill
+                 echo -e "${DIM}server dimatikan.${RESET}"
+                 break ;;
             *) ;;
         esac
     done
