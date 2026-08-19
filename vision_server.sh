@@ -106,7 +106,7 @@ web() {
     fi
     local URL="http://${LAN_IP:-127.0.0.1}:$WEB_PORT"
     echo "web interface: $URL"
-    cd ~/visionpsy/web && python3 -m http.server "$WEB_PORT" --bind "$HOST" &
+    cd ~/visionpsy/web && python3 server.py "$WEB_PORT" &
     local WPID=$!
     echo "web server pid: $WPID"
     if command -v termux-open-url &>/dev/null; then
