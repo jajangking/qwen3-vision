@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# VisionPsy-Nano launcher + CLI wrapper
+# Usage:
+#   visionpsy            -> chat (starts server if needed, keeps it alive after exit)
+#   visionpsy img <f>    -> describe image
+#   visionpsy ask <f> q  -> ask about image
+#   visionpsy stop       -> stop background server
+set -e
+cd ~/visionpsy
+export LD_LIBRARY_PATH="$PWD/build/bin"
+export MTMD_NO_UPSCALE=1
+PORT=8090
+
+is_up() { python3 -c "import socket;s=socket.socket();s.settimeout(2);s.connect(('127.0.0.1',$PORT))" 2>/dev/null; }
+
+start() {
+  if is_up; then echo "server sudah jalan."; return; fi
+  echo "memulai server (30-90 detik sekali jalan, setelah itu instant)..."
+  setsid build/bin/llama-server -m models/lm.gguf --mmproj models/mmproj.gguf \
+    --host 127.0.0.1 --port $PORT -t 4 -c 2048 -ngl 0 --no-warmup \
+    > server.log 2>&1 < /dev/null &
+  disown 2>/dev/null || true
+  for i in $(seq 1 90); do
+    if is_up; then echo "server siap."; return; fi
+    sleep 2
+  done
+  echo "GAGAL: cek server.log"; tail -5 server.log
+  exit 1
+}
+
+case "$1" in
+  stop)
+    pkill -f llama-server; echo "server dihentikan." ;;
+  img) shift; start; python3 -u cli.py img "$@" ;;
+  ask) shift; start; python3 -u cli.py ask "$@" ;;
+  *)
+    start
+    python3 -u cli.py
+    echo "[server masih hidup di background - ketik 'visionpsy stop' untuk mematikannya]"
+    ;;
+esac
