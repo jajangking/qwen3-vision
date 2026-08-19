@@ -195,8 +195,8 @@ label[for="file-input"]:hover{background:var(--surface3);color:var(--text)}
 const $=s=>document.querySelector(s);
 const msgBox=$('#messages'), textInput=$('#text-input'), fileInput=$('#file-input');
 
-let cfg=JSON.parse(localStorage.getItem('vpsy4-cfg')||'null')||{
-  url:'http://127.0.0.1:8090',maxTokens:128,temp:0.7,sys:'Kamu adalah asisten yang ramah. Jangan memperkenalkan diri, jangan menyebut nama model, pencipta, atau kata "sistem AI". Langsung jawab pertanyaan user dengan ringkas dalam Bahasa Indonesia.'
+let cfg=JSON.parse(localStorage.getItem('vpsy5-cfg')||'null')||{
+  url:'http://127.0.0.1:8090',maxTokens:128,temp:0.7,sys:'Kamu adalah asisten yang ramah. Jangan memperkenalkan diri, jangan menyebut nama model, pencipta, atau kata "sistem AI". Langsung jawab pertanyaan user dengan ringkas dalam Bahasa Indonesia. Disiplin tool: jika ada tool yang tersedia untuk pertanyaan (deteksi objek, pencarian web, waktu, kalkulator, kamera), WAJIB panggil dulu sebelum menjawab. Jangan menjawab fakta terkini dari ingatan — gunakan web_search. Jawaban akhir harus berdasarkan hasil tool, bukan tebakan.'
 };
 let history=[];
 let imageB64=null;
@@ -306,7 +306,7 @@ async function send(){
 const TOOLS=[
   {type:'function',function:{name:'detect_objects',description:'Deteksi objek dan posisinya (bounding box) dalam gambar secara akurat, termasuk manusia (person).',parameters:{type:'object',properties:{}}}},
   {type:'function',function:{name:'get_time',description:'Dapatkan tanggal dan waktu saat ini.',parameters:{type:'object',properties:{}}}},
-  {type:'function',function:{name:'web_search',description:'Cari informasi terbaru di internet tentang suatu topik.',parameters:{type:'object',properties:{query:{type:'string',description:'Kata kunci pencarian'}},required:['query']}}},
+  {type:'function',function:{name:'web_search',description:'Cari informasi di internet. WAJIB dipakai untuk fakta yang bisa berubah/terkini (pejabat, politik, berita, harga, olahraga, nama orang). Jangan pernah menjawab fakta terkini dari ingatan sendiri.',parameters:{type:'object',properties:{query:{type:'string',description:'Kata kunci pencarian'}},required:['query']}}},
   {type:'function',function:{name:'calculate',description:'Hitung ekspresi matematika secara akurat, misalnya "2+3*4" atau "sqrt(144)".',parameters:{type:'object',properties:{expr:{type:'string',description:'Ekspresi matematika'}},required:['expr']}}},
   {type:'function',function:{name:'take_photo',description:'Ambil foto baru dengan kamera perangkat.',parameters:{type:'object',properties:{}}}}
 ];
@@ -316,7 +316,9 @@ async function dispatchTool(tc){
   try{args=tc.function.arguments?JSON.parse(tc.function.arguments):{};}catch{}
   try{
     if(name==='detect_objects')return JSON.stringify(await runLocalDetection());
-    if(name==='get_time')return JSON.stringify({now:new Date().toString(),iso:new Date().toISOString(),timezone:Intl.DateTimeFormat().resolvedOptions().timeZone});
+    if(name==='get_time')return JSON.stringify({
+      waktu:new Intl.DateTimeFormat('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',timeZoneName:'short'}).format(new Date()),
+      waktu_raw:new Date().toString()});
     if(name==='web_search')return await webSearch(String(args.query||''));
     if(name==='calculate')return JSON.stringify(safeCalc(String(args.expr||'')));
     if(name==='take_photo')return await takePhoto();
@@ -416,19 +418,28 @@ function toast(msg){
 
 // --- Tools: web search (DuckDuckGo), kalkulator aman, kamera ---
 async function webSearch(query){
+  const hasil={query};
   try{
     const r=await fetch('https://api.duckduckgo.com/?q='+encodeURIComponent(query)+'&format=json&no_html=1&skip_disambig=1');
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const d=await r.json();
-    const rel=(d.RelatedTopics||[]).filter(t=>t.Text).slice(0,5).map(t=>t.Text);
-    return JSON.stringify({query,abstract:d.AbstractText||'',results:rel});
-  }catch(e){
+    const d=await r.ok?await r.json():{};
+    hasil.abstract=d.AbstractText||'';
+    hasil.results=(d.RelatedTopics||[]).filter(t=>t.Text).slice(0,5).map(t=>t.Text);
+  }catch{}
+  if(!hasil.abstract&&!hasil.results.length){
     try{
-      const r=await fetch('https://en.wikipedia.org/w/api.php?action=opensearch&search='+encodeURIComponent(query)+'&limit=5&format=json&origin=*');
+      const r=await fetch('https://id.wikipedia.org/w/api.php?action=opensearch&search='+encodeURIComponent(query)+'&limit=3&format=json&origin=*');
       const d=await r.json();
-      return JSON.stringify({query,abstract:'[fallback wikipedia]',results:d[1]||[]});
-    }catch(e2){return JSON.stringify({error:'pencarian gagal: '+(e2.message||e.message)});}
+      const ttl=d[1]&&d[1][0];
+      if(ttl){
+        const s=await fetch('https://id.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(ttl));
+        const sd=await s.json();
+        hasil.abstract=sd.extract||'';
+        hasil.sumber='Wikipedia id: '+ttl;
+      }
+    }catch{}
   }
+  hasil.instruksi='Jawab HANYA berdasarkan data di atas. Jika data kosong, katakan jujur bahwa hasil pencarian tidak memberikan informasi itu.';
+  return JSON.stringify(hasil);
 }
 function safeCalc(expr){
   expr=expr.replace(/\^/g,'**').replace(/,/g,'.');
@@ -603,7 +614,7 @@ function saveSettings(){
   cfg.maxTokens=parseInt($('#cfg-tokens').value)||512;
   cfg.temp=parseFloat($('#cfg-temp').value)||0.7;
   cfg.sys=$('#cfg-sys').value;
-  localStorage.setItem('vpsy4-cfg',JSON.stringify(cfg));
+  localStorage.setItem('vpsy5-cfg',JSON.stringify(cfg));
   closeSettings();
   checkHealth();
 }
