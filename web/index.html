@@ -167,8 +167,8 @@ label[for="file-input"]:hover{background:var(--surface3);color:var(--text)}
 const $=s=>document.querySelector(s);
 const msgBox=$('#messages'), textInput=$('#text-input'), fileInput=$('#file-input');
 
-let cfg=JSON.parse(localStorage.getItem('vpsy2-cfg')||'null')||{
-  url:'http://127.0.0.1:8090',maxTokens:256,temp:0.7,sys:''
+let cfg=JSON.parse(localStorage.getItem('vpsy3-cfg')||'null')||{
+  url:'http://127.0.0.1:8090',maxTokens:128,temp:0.7,sys:''
 };
 let history=[];
 let imageB64=null;
@@ -396,7 +396,7 @@ function saveSettings(){
   cfg.maxTokens=parseInt($('#cfg-tokens').value)||512;
   cfg.temp=parseFloat($('#cfg-temp').value)||0.7;
   cfg.sys=$('#cfg-sys').value;
-  localStorage.setItem('vpsy2-cfg',JSON.stringify(cfg));
+  localStorage.setItem('vpsy3-cfg',JSON.stringify(cfg));
   closeSettings();
   checkHealth();
 }
