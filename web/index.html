@@ -48,6 +48,25 @@ main{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .typing span:nth-child(2){animation-delay:.15s}
 .typing span:nth-child(3){animation-delay:.3s}
 @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+/* Scan overlay */
+.img-wrap{position:relative;display:inline-block;max-width:280px}
+.img-wrap img{max-width:280px;max-height:200px;display:block;border-radius:8px;margin-bottom:4px;cursor:pointer;transition:.15s}
+.img-wrap .scan-overlay{position:absolute;inset:0;border-radius:8px;overflow:hidden;pointer-events:none;opacity:0;transition:opacity .3s}
+.img-wrap.scanning .scan-overlay{opacity:1}
+.scan-overlay .beam,.scan-overlay .line{position:absolute;left:0;right:0;height:2px;top:0;animation:scanline 1.9s ease-in-out infinite}
+.scan-overlay .beam{background:linear-gradient(90deg,transparent,#4db4ff,transparent);box-shadow:0 0 14px #4db4ff,0 0 28px rgba(77,180,255,.6)}
+.scan-overlay .line{height:30%;height:34%;background:linear-gradient(180deg,transparent,rgba(77,180,255,.12),transparent);box-shadow:none}
+@keyframes scanline{0%,100%{top:-40%}50%{top:100%}}
+.scan-overlay .corner{position:absolute;width:18px;height:18px;border:2px solid #4db4ff}
+.scan-overlay .c1{top:8px;left:8px;border-right:none;border-bottom:none;border-radius:4px 0 0 0}
+.scan-overlay .c2{top:8px;right:8px;border-left:none;border-bottom:none;border-radius:0 4px 0 0}
+.scan-overlay .c3{bottom:8px;left:8px;border-right:none;border-top:none;border-radius:0 0 0 4px}
+.scan-overlay .c4{bottom:8px;right:8px;border-left:none;border-top:none;border-radius:0 0 4px 0}
+.scan-label{position:absolute;left:10px;right:10px;bottom:8px;display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#cfe8ff;text-shadow:0 1px 4px #000}
+.scan-pct{color:#7fd0ff;font-variant-numeric:tabular-nums}
+.bot-status{font-size:11px;color:var(--text2);padding:2px 2px 0;display:flex;gap:6px;align-items:center}
+.bot-status .spinner{width:12px;height:12px;border:2px solid var(--surface3);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
 /* Input */
 #input-bar{padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0}
 #preview-area{display:none;padding:8px 0}
@@ -249,6 +268,7 @@ async function send(){
 
   // bot placeholder
   const botDiv=addMsg('bot','',null,true);
+  startStatus(botDiv);
   streaming=true;
   $('#send-btn').disabled=true;
   const t0=Date.now();
@@ -298,6 +318,7 @@ async function send(){
     const elapsed=((Date.now()-t0)/1000).toFixed(1);
     renderBotReply(botDiv,'Error: '+e.message,true,elapsed);
   }
+  stopStatus();
   streaming=false;
   $('#send-btn').disabled=false;
   textInput.focus();
@@ -317,10 +338,20 @@ function addMsg(role,text,img,loading){
   const div=document.createElement('div');
   div.className='msg '+role;
   if(img){
+    const wrap=document.createElement('div');
+    wrap.className='img-wrap';
     const i=document.createElement('img');
     i.src='data:image/jpeg;base64,'+img;
     i.onclick=()=>{$('#lb-img').src=i.src;$('#lightbox').classList.add('show')};
-    div.appendChild(i);
+    wrap.appendChild(i);
+    const ov=document.createElement('div');
+    ov.className='scan-overlay';
+    ov.innerHTML='<div class="beam"></div><div class="line"></div>'+
+      '<div class="corner c1"></div><div class="corner c2"></div>'+
+      '<div class="corner c3"></div><div class="corner c4"></div>'+
+      '<div class="scan-label"><span>Membaca gambar&hellip;</span><span class="scan-pct"></span></div>';
+    wrap.appendChild(ov);
+    div.appendChild(wrap);
   }
   if(text||loading){
     const bubble=document.createElement('div');
@@ -360,6 +391,45 @@ function renderBotLabel(div,elapsed){
   scrollDown();
 }
 
+// --- Live status (scan image + processing, via /slots) ---
+let slotTimer=null, statusTxt=null, startT=0;
+function setScanning(on){
+  const w=document.querySelector('.msg.user .img-wrap');
+  if(w)w.classList.toggle('scanning',on);
+}
+function startStatus(div){
+  startT=Date.now();
+  const b=div.querySelector('.msg-bubble');
+  const st=document.createElement('div');
+  st.className='bot-status';
+  st.innerHTML='<span class="spinner"></span><span class="st-txt">memulai&hellip;</span>';
+  b.appendChild(st);
+  statusTxt=st.querySelector('.st-txt');
+  setScanning(true);
+  slotTimer=setInterval(tickStatus,700);
+}
+function tickStatus(){
+  const el=((Date.now()-startT)/1000).toFixed(1)+'s';
+  const pct=$('.msg.user .img-wrap .scan-pct');
+  fetch(cfg.url+'/slots').then(r=>r.json()).then(slots=>{
+    const a=slots.filter(s=>s.is_processing).sort((x,y)=>(y.id_task||0)-(x.id_task||0))[0];
+    let txt;
+    if(a){
+      const tot=a.n_prompt_tokens||0, done=a.n_prompt_tokens_processed||0;
+      if(tot>0&&done<tot-1)txt='membaca gambar '+done+'/'+tot+' token';
+      else if(tot>0)txt='menulis jawaban&hellip; '+el;
+      else txt='membaca gambar&hellip; '+el;
+      if(pct&&tot>0)pct.textContent=done+'/'+tot;
+    } else txt='memproses&hellip; '+el;
+    if(statusTxt)statusTxt.innerHTML=txt;
+  }).catch(()=>{if(statusTxt)statusTxt.textContent='memproses&hellip; '+el;});
+}
+function stopStatus(){
+  if(slotTimer){clearInterval(slotTimer);slotTimer=null;}
+  setScanning(false);
+  statusTxt=null;
+}
+
 function scrollDown(){msgBox.scrollTop=msgBox.scrollHeight;}
 
 // --- Tips ---
@@ -396,7 +466,7 @@ function saveSettings(){
   cfg.maxTokens=parseInt($('#cfg-tokens').value)||512;
   cfg.temp=parseFloat($('#cfg-temp').value)||0.7;
   cfg.sys=$('#cfg-sys').value;
-  localStorage.setItem('vpsy3-cfg',JSON.stringify(cfg));
+  localStorage.setItem('vpsy4-cfg',JSON.stringify(cfg));
   closeSettings();
   checkHealth();
 }
