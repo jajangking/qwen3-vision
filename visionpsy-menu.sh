@@ -1,18 +1,56 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# VisionPsy launcher menu (ported from gemma4-vision llama.sh)
+# VisionPsy launcher menu - TUI untuk Qwen3-VL-2B
 DIR=~/visionpsy
 HOST=127.0.0.1
 API_PORT=8090
 WEB_PORT=8091
 LAN_IP=$(ip -4 addr show 2>/dev/null | grep -oP 'inet \K[\d.]+' | grep -v '^127\.' | head -1)
 [ -z "$LAN_IP" ] && LAN_IP=$(ifconfig 2>/dev/null | grep -oP 'inet \K[\d.]+' | grep -v '^127\.' | head -1)
+[ -z "$LAN_IP" ] && LAN_IP=127.0.0.1
 
-GREEN="\033[32m"; RED="\033[31m"; YELLOW="\033[33m"; CYAN="\033[36m"; BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
+GREEN="\033[32m"; RED="\033[31m"; YELLOW="\033[33m"; CYAN="\033[36m"; MAGENTA="\033[35m"
+BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
+
+# --- Layout ---
+W=58
+if command -v tput >/dev/null 2>&1; then
+    C=$(tput cols 2>/dev/null)
+    if [ -n "$C" ] && [ "$C" -ge 46 ] && [ "$C" -le 90 ]; then W=$((C-4)); fi
+fi
+LINE="$(printf '═%.0s' $(seq 1 "$W"))"
+SP=$(printf ' %.0s' $(seq 1 "$W"))
 
 health() { curl -s -m 3 "http://$HOST:$API_PORT/health" 2>/dev/null | grep -q '"ok"'; }
 
+slot_info() {
+    curl -s -m 3 "http://$HOST:$API_PORT/slots" 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    tot=len(d); busy=sum(1 for s in d if s.get('state')!='idle')
+    proc=next((s for s in d if s.get('state')!='idle'),None)
+    if proc:
+        print(f'{busy}/{tot} memproses {proc.get(\"n_prompt_tokens_processed\",0)}/{proc.get(\"n_prompt_tokens\",\"?\")} token')
+    else:
+        print(f'{tot} slot siap')
+except Exception:
+    print('-')
+" 2>/dev/null || echo "-"
+}
+
+sys_stats() {
+    local memtotal memavail
+    read -r memtotal memavail <<< "$(awk '/MemTotal|MemAvailable/{print $2}' /proc/meminfo | tr '\n' ' ')"
+    local memu=$(( (memtotal - memavail) / 1024 )) memt=$(( memtotal / 1024 ))
+    local load
+    load=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null || echo "-")
+    local disk
+    disk=$(df -h / 2>/dev/null | awk 'NR==2{printf "%s / %s", $3, $2}')
+    echo "RAM ${memu}/${memt}G  ·  CPU ${load}  ·  Disk ${disk}"
+}
+
 server_status() {
-    if health; then echo -e "${GREEN}\u25cf Server online${RESET} ($HOST:$API_PORT)"; else echo -e "${RED}\u25cf Server offline${RESET}"; fi
+    if health; then echo -e "${GREEN}● Server online${RESET}"; else echo -e "${RED}● Server offline${RESET}"; fi
 }
 
 start() {
@@ -28,8 +66,8 @@ web() {
     if health; then
         bash "$DIR/vision_server.sh" web
     else
-        echo -e "${YELLOW}Server belum jalan. Pilih 1) Start server dulu.${RESET}"
-        read -p "enter..." 
+        echo -e "${YELLOW}Server belum jalan.${RESET}"
+        read -p "enter..."
     fi
 }
 
@@ -37,7 +75,7 @@ cli() {
     if health; then
         python3 "$DIR/web/cli.py"
     else
-        echo -e "${YELLOW}Server belum jalan. Pilih 1) Start server dulu.${RESET}"
+        echo -e "${YELLOW}Server belum jalan.${RESET}"
     fi
 }
 
@@ -69,6 +107,18 @@ switch_model() {
     bash "$DIR/vision_server.sh" start || echo "$cur" > $DIR/models/current.txt
 }
 
+bar_top() { echo -e "${CYAN}╔${LINE}╗${RESET}"; }
+bar_bot() { echo -e "${CYAN}╚${LINE}╝${RESET}"; }
+bar_sep() { echo -e "${CYAN}╠${LINE}╣${RESET}"; }
+
+panj_mid() { printf "${CYAN}║${RESET}  ${BOLD}%s${RESET}) %-*s${CYAN}║${RESET}\n" "$1" "$((W-7))" "$2"; }
+panj_lr() {
+    local l="${BOLD}$1${RESET}) $2" r="${BOLD}$3${RESET}) $4"
+    local pad=$((W - ${#1} - ${#2} - ${#3} - ${#4} - 8))
+    [ "$pad" -lt 4 ] && pad=4
+    printf "${CYAN}║${RESET}  %b%*s%b${CYAN}║${RESET}\n" "$l" "$pad" "" "$r"
+}
+
 menu() {
     if ! health; then
         echo -e "${YELLOW}Menyiapkan server...${RESET}"
@@ -76,22 +126,31 @@ menu() {
     fi
     while true; do
         clear
-        echo -e "${BOLD}${CYAN}Qwen3-VL-2B${RESET}"
-        server_status
-        echo -e "
-  1) Web UI  (http://${LAN_IP:-127.0.0.1}:$WEB_PORT)
-  2) Chat CLI (streaming)
-  3) Query 1 gambar langsung
-  4) Status
-  5) Ganti model  (${CYAN}$(cat $DIR/models/current.txt 2>/dev/null)${RESET})
-  0) Keluar"
+        local title=" QWEN3-VL-2B "
+        local pad=$(( (W - ${#title}) / 2 ))
+        local cur=$(cat $DIR/models/current.txt 2>/dev/null || echo "?")
+        local st; st=$(server_status)
+        local slots; slots=$(slot_info)
+        local sys; sys=$(sys_stats)
+
+        bar_top
+        printf "${CYAN}║${RESET}${BOLD}%*s%s%*s${CYAN}║${RESET}\n" "$pad" "" "$title" "$((W-pad-${#title}))" ""
+        bar_sep
+        printf "${CYAN}║${RESET}  %b  ${DIM}model: ${CYAN}%s${RESET}%*s${CYAN}║${RESET}\n" "$st" "$cur" "$((W-17-${#cur}))" ""
+        printf "${CYAN}║${RESET}  ${DIM}%s%*s${CYAN}║${RESET}\n" "$sys" "$((W-5-${#sys}))" ""
+        printf "${CYAN}║${RESET}  ${DIM}slot: ${CYAN}%s${RESET}   ${DIM}web: ${GREEN}http://%s:%s${RESET}%*s${CYAN}║${RESET}\n" "$slots" "$LAN_IP" "$WEB_PORT" "$((W-26-${#slots}-${#LAN_IP}))" ""
+        bar_sep
+        panj_lr "1" "Web UI" "2" "Chat CLI"
+        panj_lr "3" "Query 1 gambar" "4" "Status"
+        panj_lr "5" "Ganti model" "0" "Keluar"
+        bar_bot
         echo
         read -p "pilih: " opt
         case "$opt" in
             1) web ;;
             2) cli ;;
             3) read -p "path gambar: " img; query "$img" ;;
-            4) server_status;       read -p "enter..." ;;
+            4) server_status; slots=$(slot_info); echo -e "${DIM}slot: $slots${RESET}"; read -p "enter..." ;;
             5) switch_model;        read -p "enter..." ;;
             0|q) echo -e "${DIM}mematikan server...${RESET}"
                  stop

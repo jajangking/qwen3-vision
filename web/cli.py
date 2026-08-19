@@ -20,6 +20,7 @@ MAGENTA="\033[35m"
 RESET = "\033[0m"
 
 history = []
+lastQuery = ""
 
 # --- Persistent connection for speed ---
 _parsed = urllib.parse.urlparse(SERVER)
@@ -142,6 +143,7 @@ def safe_calc(expr):
     return str(_eval_expr(tree.body))
 
 def dispatch_tool(name, args):
+    global lastQuery
     if name == "get_time":
         from datetime import datetime
         now = datetime.now()
@@ -152,6 +154,7 @@ def dispatch_tool(name, args):
         return json.dumps({"waktu": t, "waktu_raw": now.isoformat()})
     if name == "web_search":
         q = str(args.get("query", ""))
+        lastQuery = q
         d = None
         for attempt in range(2):
             try:
@@ -384,6 +387,8 @@ def main():
             continue
 
         # --- Normal message ---
+        if lastQuery and len(raw.split()) <= 4:
+            raw = 'Pertanyaan lanjutan dari pencarian sebelumnya ("' + lastQuery + '"). Gunakan web_search dulu: ' + raw
         user_msg = {"role": "user", "content": raw}
         history.append(user_msg)
         trim_history()

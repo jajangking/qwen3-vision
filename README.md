@@ -149,3 +149,24 @@ Pertanyaan: model AI coding open-source terbaik yang ringan & muat HP (TECNO LJ8
 
 ### Status
 Ditampung (belum diunduh/dipasang). Download menunggu keputusan user.
+
+### Survey semua ukuran: model coding terkuat 2026 (DeepSeek V4 dkk)
+Diverifikasi HF Agustus 2026.
+
+| Model | Ukuran (total/aktif) | SWE Verified | Ctx | Lisensi | Muat lokal? |
+|---|---|---|---|---|---|
+| DeepSeek-V4-Pro | 1.6T / 49B | 80.6% vendor; 96.4% Vals-0813 | 1M | MIT | 8xH100 (tidak) |
+| DeepSeek-V4-Flash | 284B / 13B | 79.0% | 1M | MIT | 4-bit ~170GB (tidak) |
+| Kimi K3 | 2.8T MoE | 93.4% (Vals); #1 Frontend | 1M | open weights ±Jul-27 | API |
+| GLM-5.2 | 744B / 40B | 82.8% (Vals) | 1M | MIT | API |
+| MiniMax M3 | ~230B / ~10B | 80.5% | ~1M | Community | API |
+| Qwen3.8 Max | besar | top open BenchLM | 1M | open | API |
+| Qwen3-Coder-Next | 80B / 3B | 70.6% | 256K | Apache-2.0 | ~46GB (paling layak self-host) |
+| Qwen3.6-27B | 27B dense | 77.2% | ? | Apache-2.0 | 32GB Mac |
+| Kimi K2.7-Code | 1T / 32B | 78.2% | ? | ? | rig 512GB |
+| Hunyuan Hy3 | besar | 78% | ? | Apache-2.0 | API |
+| gpt-oss-120b | 117B / 5.1B | ~26-30% | 128K | Apache-2.0 | ~64GB Q4 |
+
+GGUF resmi komunitas: `unsloth/DeepSeek-V4-Flash-0731-GGUF` (UD-IQ1 s/d Q4_K).
+Catatan CAISI (NIST): V4-Pro ketinggalan frontier ±8 bln di pengukuran independen (SWE 74%).
+Kesimpulan buat HP: semua kelas besar tidak muat; tetap mini-coder-1.7b/4b (headline riset di atas).
