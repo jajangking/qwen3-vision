@@ -79,24 +79,20 @@ menu() {
         echo -e "${BOLD}${CYAN}Qwen3-VL-2B${RESET}"
         server_status
         echo -e "
-  1) Start server
-  2) Stop server
-  3) Web UI  (http://${LAN_IP:-127.0.0.1}:$WEB_PORT)
-  4) Chat CLI (streaming)
-  5) Query 1 gambar langsung
-  6) Status
-  7) Ganti model  (${CYAN}$(cat $DIR/models/current.txt 2>/dev/null)${RESET})
+  1) Web UI  (http://${LAN_IP:-127.0.0.1}:$WEB_PORT)
+  2) Chat CLI (streaming)
+  3) Query 1 gambar langsung
+  4) Status
+  5) Ganti model  (${CYAN}$(cat $DIR/models/current.txt 2>/dev/null)${RESET})
   0) Keluar"
         echo
         read -p "pilih: " opt
         case "$opt" in
-            1) start;               read -p "enter..." ;;
-            2) stop;                read -p "enter..." ;;
-            3) web ;;
-            4) cli ;;
-            5) read -p "path gambar: " img; query "$img" ;;
-            6) server_status;       read -p "enter..." ;;
-            7) switch_model;        read -p "enter..." ;;
+            1) web ;;
+            2) cli ;;
+            3) read -p "path gambar: " img; query "$img" ;;
+            4) server_status;       read -p "enter..." ;;
+            5) switch_model;        read -p "enter..." ;;
             0|q) echo -e "${DIM}mematikan server...${RESET}"
                  stop
                  lsof -ti :$WEB_PORT 2>/dev/null | xargs -r kill
