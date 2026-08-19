@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI chat interface for VisionPsy-Nano (llama-server) - optimized"""
+"""CLI chat interface untuk Qwen3-VL-2B (llama-server)"""
 import sys, os, json, base64, readline, textwrap, signal, time, http.client, urllib.parse
 from urllib.request import Request, urlopen
 from urllib.error import URLError
@@ -172,7 +172,7 @@ def print_config():
 def main():
     global SYSTEM_PROMPT, MAX_TOKENS, TEMP, SERVER
 
-    print(f"{BOLD}{MAGENTA}VisionPsy CLI{RESET}  {DIM}({SERVER}){RESET}")
+    print(f"{BOLD}{MAGENTA}Qwen3-VL CLI{RESET}  {DIM}({SERVER}){RESET}")
     print(f"{DIM}Type /help for commands. Drag & drop: /img <path>{RESET}\n")
 
     # check server (retry a few times)
