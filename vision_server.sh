@@ -3,7 +3,7 @@
 # Usage: vision_server.sh [start|stop|status|web|cli|query IMAGE PROMPT]
 
 LLAMA_DIR=~/visionpsy/build/bin
-CUR=$(cat ~/visionpsy/models/current.txt 2>/dev/null || echo visionpsy-nano)
+CUR=$(cat ~/visionpsy/models/current.txt 2>/dev/null || echo qwen3-vl-2b)
 MODEL=~/visionpsy/models/$CUR/model.gguf
 [ -f "$MODEL" ] || MODEL=~/visionpsy/models/$CUR/lm.gguf
 MMPROJ=~/visionpsy/models/$CUR/mmproj.gguf
@@ -24,13 +24,13 @@ start() {
     fi
     echo "starting vision server (model load ~5-30s)..."
     termux-wake-lock 2>/dev/null
-    setsid bash -c "LD_LIBRARY_PATH=$LLAMA_DIR MTMD_NO_UPSCALE=1 exec $LLAMA_DIR/llama-server \
+    setsid bash -c "LD_LIBRARY_PATH=$LLAMA_DIR MTMD_NO_UPSCALE=1 MTMD_DISABLE_BATCH_SLICES=1 exec $LLAMA_DIR/llama-server \
         -m $MODEL \
         --mmproj $MMPROJ \
         -t 4 -c 4096 \
         -C 0xF0 \
         -fa auto \
-        -b 1024 -ub 512 \
+        -b 2048 -ub 1024 \
         --no-warmup \
         --host $HOST --port $PORT" > "$LOG_FILE" 2>&1 &
     disown
